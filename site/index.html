@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Lumen Desk Lamp</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],Object.defineProperty(u,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e}}),Object.defineProperty(u.people,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(){return u.toString(1)+".people (stub)"}}),o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagResult isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init('phc_krkYgA4P7h76eYn7Db6ZSJktSKFhsYeopEbJt42qDnvC', {
+        api_host: 'https://eu.i.posthog.com',
+        defaults: '2026-08-30',
+        capture_pageview: false,
+    })
+  </script>
+</head>
+<body>
+  <main>
+    <h1>Lumen Desk Lamp</h1>
+    <p>Lumen is a slim aluminium desk lamp with warm, even light that is easy on the eyes during long evenings of reading or work.</p>
+    <p>A single touch dial adjusts brightness and colour temperature, and the weighted base keeps the arm steady at any angle.</p>
+    <button id="cta" type="button">Request a quote</button>
+  </main>
+  <footer>Demo page used for an analytics experiment. Nothing is sold and no personal data is collected.</footer>
+
+  <script>
+    // Traffic group from ?g=..., attached to every event as a super property.
+    var group = new URLSearchParams(location.search).get('g') || 'direct';
+    posthog.register({ traffic_group: group, is_webdriver: navigator.webdriver === true });
+    posthog.capture('$pageview');
+
+    // A/A experiment exposure: getFeatureFlag sends $feature_flag_called.
+    // Both variants render the same page; the variant is only recorded on <body>.
+    posthog.onFeatureFlags(function () {
+      var variant = posthog.getFeatureFlag('bot-aa-test');
+      document.body.dataset.variant = variant === undefined ? 'none' : String(variant);
+    });
+
+    document.getElementById('cta').addEventListener('click', function () {
+      posthog.capture('cta_clicked');
+      var note = document.createElement('p');
+      note.className = 'thanks';
+      note.textContent = 'Thanks, this is a demo page.';
+      this.replaceWith(note);
+    });
+
+    // engaged_10s: fires once, after 10 s of the page being visible (hidden time does not count).
+    var visibleMs = 0;
+    var timer = setInterval(function () {
+      if (document.visibilityState === 'visible') visibleMs += 250;
+      if (visibleMs >= 10000) {
+        clearInterval(timer);
+        posthog.capture('engaged_10s');
+      }
+    }, 250);
+  </script>
+</body>
+</html>
