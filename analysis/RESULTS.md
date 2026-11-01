@@ -1,6 +1,6 @@
 # Bots in an A/A test: results
 
-A controlled demonstration of how automated traffic and AI agents show up in a PostHog A/B test, using an **A/A experiment** (two identical variants, so the true difference is zero). All times are UTC. Data was pulled from PostHog on 1 Nov 2026, about 19:20.
+A controlled demonstration of how automated traffic and AI agents show up in a PostHog A/B test, using an **A/A experiment** (two identical variants, so the true difference is zero). All times are UTC. **Data cutoff: everything PostHog had ingested by 1 Nov 2026, 20:21:12** (from PostHog's ingestion time, `created_at`). An earlier pull at 19:20:41 the same day is kept as history in §7.
 
 ## 1. Method
 
@@ -57,7 +57,7 @@ Short diagnostic visits (`diag-*`) were also made while investigating. They are 
 |---|---|---|---|---|---|
 | bot-naive | 150 | 0 | **0** | 0 | 0 → 0 |
 | bot-disguised | 30 | 0 | **0** | 0 | 10 → **0** |
-| bot-stealth | 150 | **136** | 685 | **136** | 56 → **49** |
+| bot-stealth | 150 | **150** | 758 | **150** | 56 → **55** |
 | bot-nojs | 50 | 0 | **0** | 0 | 0 → 0 |
 | agent-claude-webfetch | manual | 0 | **0** | 0 | – |
 | agent-chatgpt | manual | 0 | **0** | 0 | – |
@@ -68,7 +68,7 @@ Short diagnostic visits (`diag-*`) were also made while investigating. They are 
 The two visits with an altered `?g=` value (§8) sent 3 events each, with 1 exposure each.
 
 - **Every bot that announced itself, by user agent, browser brand or the webdriver flag, was invisible in PostHog.**
-- The stealth bots, which hid those signals, were counted as normal visitors. 136 of 150 arrived (§7).
+- The stealth bots, which hid those signals, were counted as normal visitors. All 150 arrived, 14 of them about 75 minutes late, and one arrived without its click (§7).
 - **Bots that don't run JavaScript** (curl, the web-fetch tool, free ChatGPT) **never reach PostHog at all.** This is because PostHog only records visits through code that runs in the browser.
 
 ## 3. How each bot tier was stopped, or not
@@ -113,28 +113,29 @@ Exposed visitors and conversions per variant. In an A/A test both columns should
 **(b) Humans + bot-stealth**
 | Variant | Exposed | Clicked | Click rate | Engaged 10 s | Engaged rate |
 |---|---|---|---|---|---|
-| control | 75 | 28 | 37.3% | 34 | 45.3% |
-| test | 72 | 28 | 38.9% | 32 | 44.4% |
+| control | 82 | 31 | 37.8% | 37 | 45.1% |
+| test | 79 | 31 | 39.2% | 35 | 44.3% |
 
 **(c) Everything the experiment counts** (per person, any group, like PostHog's experiment page)
 | Variant | Exposed | Clicked | Click rate | Engaged 10 s | Engaged rate |
 |---|---|---|---|---|---|
-| control | 81 | 29 | 35.8% | 38 | 46.9% |
-| test | 75 | 28 | 37.3% | 35 | 46.7% |
+| control | 88 | 32 | 36.4% | 41 | 46.6% |
+| test | 82 | 31 | 37.8% | 38 | 46.3% |
 
-- **Bots are 87% of the experiment's exposures:** 136 stealth bots out of 156.
+- **Bots are 88% of the experiment's exposures:** 150 stealth bots out of 170.
 - The human-only result is too small to mean anything: 11 people, randomly split 8:3.
 - With bots added, the click rate converges on the bot script's built-in 30% click chance rather than on human behaviour. The result looks clean, but it describes the bot, not the visitors.
-- Row (c) reproduces PostHog's own exposure totals exactly.
+- Row (c) matches PostHog's experiment page exactly: 88 / 82 exposures, 32 / 31 clickers, 41 / 38 engaged.
+- **The experiment's numbers changed after the fact.** At the 19:20:41 pull, (c) was 81 / 75 exposed and 29 / 28 clicked. The 14 late stealth visits (§7) added 7 exposures and 3 clickers to each variant.
 
-**PostHog's own sample-ratio check** (from its experiment exposure calculation):
+**PostHog's own sample-ratio check** (from its experiment exposure calculation, recalculated at 20:23:06):
 
 | Variant | Exposures | Expected |
 |---|---|---|
-| control | 81 | 78 |
-| test | 75 | 78 |
+| control | 88 | 85 |
+| test | 82 | 85 |
 
-The check **passed (p = 0.63)**. PostHog's other health checks also passed: "Bias from an uneven split" and "Users exposed to multiple variants". **The sample-ratio check cannot catch these bots,** because they are bucketed 50/50 exactly like humans.
+The check **passed (p = 0.645)**. At the earlier pull it was 81 / 75, also passed (p = 0.63). PostHog's other health checks also passed: "Bias from an uneven split" and "Users exposed to multiple variants". **The sample-ratio check cannot catch these bots,** because they are bucketed 50/50 exactly like humans.
 
 ## 5. PostHog's after-the-fact bot labels
 
@@ -142,16 +143,16 @@ These come from PostHog's virtual properties `$virt_is_bot` ("Is bot") and `$vir
 
 | Group | Is bot | Traffic type | Browser / OS / device | Countries (visitors) | is_webdriver |
 |---|---|---|---|---|---|
-| bot-stealth | false | Regular | Chrome / Windows / Desktop (all 136) | DE 136 | false |
+| bot-stealth | false | Regular | Chrome / Windows / Desktop (all 150) | DE 150 | false |
 | agent-claude-chrome (both) | false | Regular | Chrome 156 / Windows / Desktop | FI | false |
 | human | false | Regular | 6 desktop (Chrome, Firefox on Windows), 6 mobile (Chrome, Samsung Internet on Android; Safari on iOS) | FI 3, US 2, FR 2, IR 2, DE 2, TR 1 | false |
 | qa | false | Regular | Chrome / Windows / Desktop | FI | false |
 | altered-link visits | false | Regular | Chrome / Windows / Desktop | US 1, DE 1 | false |
 | diag-stealth | false | Regular | Chrome / Windows / Desktop | DE | false |
 
-**PostHog labelled every recorded visitor "Regular" (not a bot), including all 136 stealth bots and both AI-agent visits.** The bots that would have been labelled as bots never reached PostHog to be labelled.
+**PostHog labelled every recorded visitor "Regular" (not a bot), including all 150 stealth bots and both AI-agent visits.** The bots that would have been labelled as bots never reached PostHog to be labelled.
 
-The only visible trace of the stealth bots is the pattern itself: 136 visitors in 10 minutes with an identical country, browser and screen.
+The only visible trace of the stealth bots is the pattern itself: 150 visitors in 10 minutes with an identical country, browser and screen.
 
 ## 6. AI agent tests
 
@@ -166,29 +167,52 @@ Claude in Chrome runs inside the author's real browser, so PostHog sees it as th
 
 **The agent visits did not add experiment exposures.** That browser had already reported its `control` exposure during the author's QA visit, and posthog-js reports an exposure only once per browser for the same value. Exposure totals were unchanged by these visits.
 
-**The agent's clicks do count in the experiment,** though. PostHog attributes metrics per person, and that person was exposed. The agent's 2 clicks are part of the 33 control clicks in §4(c), along with 2 earlier clicks the author made from the same browser under `human`. An agent working in a real user's browser is indistinguishable from that user: same ID, same device, same label, no automation flag.
+**The agent's clicks do count in the experiment,** though. PostHog attributes metrics per person, and that person was exposed. The agent's 2 clicks are part of the 36 control clicks behind §4(c), along with 2 earlier clicks the author made from the same browser under `human`. An agent working in a real user's browser is indistinguishable from that user: same ID, same device, same label, no automation flag.
 
-## 7. The missing stealth visits
+## 7. Delayed stealth visits, and one lost click
 
-**Final count: 136 of 150 stealth visits reached PostHog. 14 never arrived.** This was re-checked about 53 minutes after the run. No late arrivals appeared, and the last stealth event was received at 18:33:53.
+### History: the 19:20:41 pull
+At the first pull, 53 minutes after the stealth run ended, **136 of 150 stealth visits were in PostHog and 14 were missing**. The last stealth event received by then had arrived at 18:33:53. The first version of this report treated the 14 as lost.
 
-| | Logged | In PostHog | Missing |
+### Final: the 20:21:12 cutoff
+**All 150 stealth visits reached PostHog. 14 of them arrived about 75 minutes late, and one arrived without its click.**
+
+| | Logged | In PostHog at 19:20:41 | In PostHog at 20:21:12 |
 |---|---|---|---|
-| Visits / exposures | 150 | 136 | 14 (7 control, 7 test) |
-| Clicks | 56 | 49 | 7 (all from the missing visits) |
+| Visits / exposures | 150 (74 control, 76 test) | 136 | **150** (74 control, 76 test) |
+| Clicks | 56 | 49 | **55** |
+
+When each stealth visit's events reached PostHog (measured on its slowest event):
+
+| Delay after the browser recorded it | Visits |
+|---|---|
+| Under 10 s | 125 |
+| 10–60 s | 3 |
+| 1–5 min | 5 |
+| 5–7 min | 3 |
+| **74–81 min** | **14** |
 
 What is known:
-- Each missing visit is gone completely, with no pageview, exposure, click or anything else. No arrived visit is partial: none has a pageview without an exposure.
-- Every logged click from a visit that arrived is in PostHog. Logged visits were matched to PostHog visitors by start time, variant and click.
-- The missing visits are spread across the whole 10-minute run, not clustered in one outage.
-- Each missing visit loaded its variant normally. Its browser sent 2–4 event requests to PostHog, and each got a response.
-- Among visits that arrived, 125 arrived within 10 s. 11 were delayed: 3 by 10–60 s, 5 by 1–5 min, 3 by 5–7 min.
+- **The 14 late visits were delayed, not lost.** PostHog ingested them between 19:38:56 and 19:40:53, about 74–81 minutes after they happened and 18 minutes after the first pull. Before that, they were not visible to any query.
+- **Each late visit arrived complete and all at once.**
+  - Every one has its pageview, flag call and exposure.
+  - All 6 of their logged clicks are there.
+  - 6 have `engaged_10s`, and 13 of 14 have `$web_vitals`.
+  - Each visit's events were ingested within 1–4 seconds of each other.
+- **Where they fell:** they happened throughout the run (18:18–18:26), split 7 control and 7 test. Yet all of them were released together in one two-minute window.
+- **One on-time visit is missing its click.** Visit 49 (control, logged as clicked) reached PostHog at 18:20:50 with only its pageview, flag call and exposure. Its click, engagement and web-vitals events never arrived, still absent at the cutoff about two hours later. This is the 56th click.
+- **Matching is now unambiguous.** Each logged visit has a PostHog visitor whose pageview came 0.4–0.7 s after the logged start, with the same variant and the same click outcome (except visit 49).
+- **A correction to the first version.** That version said every logged click from an arrived visit was in PostHog. It was wrong: looser matching had paired visit 49 with a neighbouring visitor.
+- **The experiment results changed after the fact (§4).** The late visits added 7 exposures and 3 clickers to each variant.
 
 What is not known:
-- **Whether PostHog accepted the missing visits' requests.** The bot recorded that a response came back, not its HTTP status.
+- **Why 14 visits were held back for about 75 minutes and then released together,** and why one visit lost its later events. Their browsers sent 2–4 event requests each and got responses, but the bot recorded only that a response came back, not its HTTP status.
 - **PostHog's ingestion warnings for the run window.** The endpoint exists (`GET /api/projects/:id/ingestion_warnings_v2/`), but it needs the `ingestion_warning:read` scope. The read-only key used here was refused (HTTP 403).
+- **Whether other on-time visits lost events.** 9 on-time visits (visit 49 among them) arrived with only a pageview, flag call and exposure. That fits short visits, but the bot logged neither visit length nor engagement, so only a missing click (visit 49) can be checked against the log.
 
-The all-or-nothing loss, together with the delays seen for other visitors in the same burst, points to PostHog's ingestion side delaying and dropping some of this traffic: about 15 identical visitors a minute from one IP. This is an inference, not a confirmed cause.
+The pattern suggests PostHog's ingestion put part of this burst (about 15 identical visitors a minute from one IP) on a slower path and processed it later. This is an inference, not a confirmed cause.
+
+**Practical consequence:** an experiment read within an hour or so of a traffic burst can undercount, and its numbers can still move afterwards.
 
 ## 8. The altered-link visits ("WyDAc")
 
@@ -209,10 +233,11 @@ The most likely explanation is a person who received an altered link via Telegra
 ## 9. Limitations
 
 - **The human group is small and cooperative.** 12 visitors who knew it was a test, so it is not representative traffic.
-- **All bots ran from one VPS location (Germany) and one IP.** Real bot traffic is spread across many networks. This may also have affected the ingestion losses in §7.
+- **All bots ran from one VPS location (Germany) and one IP.** Real bot traffic is spread across many networks. This may also have affected the ingestion delays in §7.
 - **Bot behaviour is synthetic:** fixed wait ranges, random mouse movement and scrolling.
 - **The 30% click rate is scripted.** The "bot result" in §4 reflects that number, not any natural behaviour.
 - **No paid ChatGPT agent test.** Only free ChatGPT was tried, and an agent that drives a real browser was tested only with Claude in Chrome.
 - **The Claude in Chrome visits used the author's own browser profile,** so they merged with the author's QA and human visits.
 - **Event requests were counted, not their HTTP status codes.** And ingestion warnings could not be read with the available key.
+- **The bot log does not record visit length or engagement,** so missing `engaged_10s` or web-vitals events cannot be checked against ground truth; only clicks can.
 - **It is a single run of each tier, on one day, with one PostHog library version (1.444.0).** PostHog's bot lists and server behaviour may change.

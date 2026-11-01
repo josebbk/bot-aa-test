@@ -10,10 +10,10 @@ Live page: https://josebbk.github.io/bot-aa-test/
 
 - [Ground truth vs what PostHog received](analysis/RESULTS.md#2-ground-truth-vs-what-posthog-received): bots that showed any automation signal sent PostHog nothing; stealth bots were counted as normal visitors.
 - [How each bot tier was stopped, or not](analysis/RESULTS.md#3-how-each-bot-tier-was-stopped-or-not): the browser-side bot check in posthog-js, and the empty flag answer for headless user agents.
-- [The experiment result, three ways](analysis/RESULTS.md#4-the-experiment-result-three-ways): bots were 87% of exposures, and PostHog's sample-ratio check still passed.
+- [The experiment result, three ways](analysis/RESULTS.md#4-the-experiment-result-three-ways): bots were 88% of exposures, and PostHog's sample-ratio check still passed.
 - [PostHog's after-the-fact bot labels](analysis/RESULTS.md#5-posthogs-after-the-fact-bot-labels): every recorded visitor, including the stealth bots, was labelled "Regular".
 - [AI agent tests](analysis/RESULTS.md#6-ai-agent-tests): web-fetch tools and free ChatGPT left no trace; Claude in Chrome looked exactly like its user.
-- [The missing stealth visits](analysis/RESULTS.md#7-the-missing-stealth-visits) and [limitations](analysis/RESULTS.md#9-limitations).
+- [The delayed stealth visits](analysis/RESULTS.md#7-delayed-stealth-visits-and-one-lost-click) and [limitations](analysis/RESULTS.md#9-limitations).
 
 ## Folder structure
 
@@ -32,7 +32,7 @@ logs/visits.csv     one row per bot visit (created on first run, not committed)
 logs/flags-*.json   saved PostHog /flags answers from the diagnostic visits (not committed)
 analysis/RESULTS.md         results summary (see "Results" above)
 analysis/run-queries.mjs    PostHog queries behind the results; needs a read-only key in .env
-analysis/results/           query output as CSV (not committed: contains visitor IDs)
+analysis/results/           query output as CSV, one folder per pull (not committed: contains visitor IDs)
 .github/workflows/pages.yml  deploys site/ to GitHub Pages
 ```
 

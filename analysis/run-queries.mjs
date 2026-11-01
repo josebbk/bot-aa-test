@@ -23,11 +23,11 @@ function readKey() {
 const KEY = readKey();
 
 // Sends any query object to the query endpoint and returns the raw JSON response.
-async function rawQuery(queryObject, name) {
+async function rawQuery(queryObject, name, refresh = 'blocking') {
   const res = await fetch(`${HOST}/api/projects/${PROJECT_ID}/query/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
-    body: JSON.stringify({ query: queryObject, name, refresh: 'blocking' }),
+    body: JSON.stringify({ query: queryObject, name, refresh }),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.replaceAll(KEY, '***').slice(0, 800)}`);
@@ -139,8 +139,11 @@ export const QUERIES = {
            countIf(event = '$experiment_exposure') AS exposures,
            countIf(event = 'cta_clicked') AS cta_clicked,
            countIf(event = 'engaged_10s') AS engaged_10s,
+           countIf(event = '$pageview') AS pageviews,
            count() AS events,
-           max(dateDiff('second', timestamp, created_at)) AS max_ingestion_delay_s
+           max(dateDiff('second', timestamp, created_at)) AS max_ingestion_delay_s,
+           min(created_at) AS first_ingested_at,
+           max(created_at) AS last_ingested_at
     FROM events WHERE properties.traffic_group = 'bot-stealth'
     GROUP BY distinct_id ORDER BY pageview_time LIMIT 1000`,
 
@@ -224,7 +227,21 @@ export const QUERIES = {
     WHERE event = '$pageview' AND timestamp >= '2026-10-31'
       AND (properties.$current_url LIKE '%utm_source=chatgpt.com%' OR properties.utm_source = 'chatgpt.com')
     ORDER BY timestamp`,
+
+  // 12. Every event PostHog ingested after the previous pull started (created_at = ingestion time).
+  q12_new_since_previous_pull: `
+    SELECT timestamp AS event_time_browser, created_at AS ingested_at,
+           dateDiff('second', timestamp, created_at) AS ingestion_delay_s,
+           event, properties.traffic_group AS traffic_group,
+           coalesce(properties.$feature_flag_response, properties.\`$feature/bot-aa-test\`) AS variant,
+           distinct_id, properties.$session_id AS session_id
+    FROM events WHERE created_at > {PREV_PULL}
+    ORDER BY ingested_at, event_time_browser LIMIT 5000`,
 };
+
+// The pull RESULTS.md was first written from (start of that run, from the result files' times).
+const PREVIOUS_PULL = '2026-11-01T19:20:41Z';
+const sqlTime = (iso) => `toDateTime('${iso.replace('T', ' ').replace(/(\.\d+)?Z$/, '')}', 'UTC')`;
 
 // PostHog's own experiment exposure calculation (exposure totals and sample-ratio check).
 const EXPERIMENT_EXPOSURE_QUERY = (experimentId, flagId, start) => ({
@@ -246,19 +263,43 @@ function matchStealthVisits({ columns, rows }) {
   const visits = lines.map(parse).map((f) => Object.fromEntries(cols.map((c, i) => [c, f[i]])))
     .filter((v) => v.group === 'bot-stealth' && !/localhost/.test(v.target_url))
     .map((v) => ({ ...v, t: Date.parse(v.timestamp) })).sort((a, b) => a.t - b.t);
-  const out = [['visit', 'logged_start', 'logged_variant', 'logged_clicked', 'logged_event_requests', 'found_in_posthog', 'posthog_distinct_id', 'posthog_pageview_time', 'posthog_cta_clicked', 'posthog_max_ingestion_delay_s']];
+  const out = [['visit', 'logged_start', 'logged_variant', 'logged_clicked', 'logged_event_requests', 'found_in_posthog',
+    'arrived_after_previous_pull', 'posthog_distinct_id', 'posthog_pageview_time', 'posthog_pageviews', 'posthog_exposures',
+    'posthog_engaged_10s', 'posthog_cta_clicked', 'posthog_first_ingested_at', 'posthog_last_ingested_at', 'posthog_max_ingestion_delay_s']];
+  // Pass 1: same variant and click, pageview within 3 s of the logged start (normally ~0.5 s).
+  // Pass 2: same, within 15 s. Pass 3: same variant, click not required, within 15 s, so a visit that
+  // arrived without its click is reported as "yes, click missing" instead of as missing.
+  const passes = [
+    { ms: 3000, needClick: true, label: 'yes' },
+    { ms: 15000, needClick: true, label: 'yes' },
+    { ms: 15000, needClick: false, label: 'yes, click missing' },
+  ];
+  const matchOf = new Map();
+  for (const pass of passes) {
+    for (const v of visits) {
+      if (matchOf.has(v)) continue;
+      const clicked = v.clicked === 'true';
+      const m = ph.filter((p) => !p.used && p.variant === v.variant && (!pass.needClick || (p.cta_clicked > 0) === clicked)
+        && p.t >= v.t && p.t <= v.t + pass.ms).sort((a, b) => a.t - b.t)[0];
+      if (m) { m.used = true; matchOf.set(v, { m, label: pass.label }); }
+    }
+  }
   for (const v of visits) {
-    const clicked = v.clicked === 'true';
-    const m = ph.filter((p) => !p.used && p.variant === v.variant && (p.cta_clicked > 0) === clicked && p.t >= v.t && p.t <= v.t + 15000)
-      .sort((a, b) => a.t - b.t)[0];
-    if (m) m.used = true;
-    out.push([v.visit, v.timestamp, v.variant, v.clicked, v.posthog_events_sent, m ? 'yes' : 'no', m?.distinct_id ?? '', m?.pageview_time ?? '', m?.cta_clicked ?? '', m?.max_ingestion_delay_s ?? '']);
+    const { m, label } = matchOf.get(v) ?? {};
+    const late = m ? (Date.parse(m.first_ingested_at) > Date.parse(PREVIOUS_PULL) ? 'yes' : 'no') : '';
+    out.push([v.visit, v.timestamp, v.variant, v.clicked, v.posthog_events_sent, label ?? 'no', late,
+      m?.distinct_id ?? '', m?.pageview_time ?? '', m?.pageviews ?? '', m?.exposures ?? '', m?.engaged_10s ?? '', m?.cta_clicked ?? '',
+      m?.first_ingested_at ?? '', m?.last_ingested_at ?? '', m?.max_ingestion_delay_s ?? '']);
   }
   const missing = out.slice(1).filter((r) => r[5] === 'no');
+  const late = out.slice(1).filter((r) => r[6] === 'yes');
+  const noClick = out.slice(1).filter((r) => r[5] === 'yes, click missing');
   return {
     table: { columns: out[0], rows: out.slice(1) },
-    note: `matched ${visits.length - missing.length} of ${visits.length} logged visits; ${missing.length} not in PostHog ` +
-      `(${missing.filter((r) => r[3] === 'true').length} of them clicked); unmatched PostHog visitors: ${ph.filter((p) => !p.used).length}`,
+    note: `matched ${visits.length - missing.length} of ${visits.length} logged visits (${late.length} first ingested after the previous pull, ` +
+      `${noClick.length} arrived without their logged click); ` +
+      `${missing.length} not in PostHog (${missing.filter((r) => r[3] === 'true').length} of them clicked); ` +
+      `unmatched PostHog visitors: ${ph.filter((p) => !p.used).length}`,
   };
 }
 
@@ -271,34 +312,49 @@ async function main() {
     console.log(`(${r.rows.length} rows)`);
     return;
   }
+  // --cutoff ISO: count only events PostHog had ingested by then (created_at). Default: now.
+  let cutoff = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const ci = args.indexOf('--cutoff');
+  if (ci >= 0) { cutoff = args[ci + 1]; args.splice(ci, 2); }
   const names = args.length ? args : Object.keys(QUERIES);
-  fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  const outDir = path.join(RESULTS_DIR, `pull-${cutoff.replaceAll(':', '-')}`);
+  const rel = (f) => path.relative(ROOT, path.join(outDir, f));
+  fs.mkdirSync(outDir, { recursive: true });
   const exp = await query(QUERIES.q0_experiment, 'bot_aa_q0_experiment');
   if (!exp.rows.length) throw new Error(`Experiment "${EXPERIMENT_NAME}" not found`);
-  const since = `toDateTime('${exp.rows[0][exp.columns.indexOf('start_date')].replace('T', ' ').replace(/(\.\d+)?Z$/, '')}', 'UTC')`;
-  console.log(`Experiment start: ${exp.rows[0][1]}`);
+  const since = sqlTime(exp.rows[0][exp.columns.indexOf('start_date')]);
+  console.log(`Experiment start: ${exp.rows[0][1]} | cutoff (ingested by): ${cutoff} | previous pull: ${PREVIOUS_PULL}`);
+  fs.writeFileSync(path.join(outDir, 'pull_info.csv'), toCsv({
+    columns: ['cutoff_ingested_by_utc', 'previous_pull_utc', 'experiment_start_utc', 'run_started_utc'],
+    rows: [[cutoff, PREVIOUS_PULL, exp.rows[0][1], new Date().toISOString()]],
+  }));
   for (const name of names) {
     if (!QUERIES[name]) throw new Error(`Unknown query: ${name}`);
-    const r = await query(QUERIES[name].replaceAll('{SINCE}', since), `bot_aa_${name}`);
-    fs.writeFileSync(path.join(RESULTS_DIR, `${name}.csv`), toCsv(r));
-    console.log(`${name}: ${r.rows.length} rows -> analysis/results/${name}.csv`);
+    const sql = QUERIES[name]
+      .replace(/FROM events(\s+)WHERE /g, 'FROM events$1WHERE created_at <= {CUTOFF} AND ')
+      .replaceAll('{SINCE}', since).replaceAll('{CUTOFF}', sqlTime(cutoff)).replaceAll('{PREV_PULL}', sqlTime(PREVIOUS_PULL));
+    const r = await query(sql, `bot_aa_${name}`);
+    fs.writeFileSync(path.join(outDir, `${name}.csv`), toCsv(r));
+    console.log(`${name}: ${r.rows.length} rows -> ${rel(`${name}.csv`)}`);
     if (name === 'q3_stealth_visitors') {
       const { table, note } = matchStealthVisits(r);
-      fs.writeFileSync(path.join(RESULTS_DIR, 'q3_visit_matching.csv'), toCsv(table));
-      console.log(`q3_visit_matching: ${note} -> analysis/results/q3_visit_matching.csv`);
+      fs.writeFileSync(path.join(outDir, 'q3_visit_matching.csv'), toCsv(table));
+      console.log(`q3_visit_matching: ${note} -> ${rel('q3_visit_matching.csv')}`);
     }
   }
 
-  // 11. PostHog's own exposure totals and sample-ratio check (only on a full run).
+  // 11. PostHog's own exposure totals and sample-ratio check (only on a full run). This is PostHog's
+  // live calculation: it cannot be limited to the ingestion cutoff, so its own refresh time is recorded.
   if (!args.length) {
     const col = (c) => exp.rows[0][exp.columns.indexOf(c)];
-    const r = await rawQuery(EXPERIMENT_EXPOSURE_QUERY(col('id'), col('feature_flag_id'), col('start_date')), 'bot_aa_q11_experiment_exposure');
+    const r = await rawQuery(EXPERIMENT_EXPOSURE_QUERY(col('id'), col('feature_flag_id'), col('start_date')), 'bot_aa_q11_experiment_exposure', 'force_blocking'); // skip PostHog's 24 h result cache
     const srm = r.sample_ratio_mismatch ?? {};
     const srmCheck = (r.health_checks ?? []).find((h) => h.key === 'srm');
-    const rows = Object.entries(r.total_exposures ?? {}).sort().map(([variant, n]) => [variant, n, srm.expected?.[variant] ?? '', srm.p_value ?? '', srmCheck?.status ?? '']);
-    fs.writeFileSync(path.join(RESULTS_DIR, 'q11_experiment_exposure.csv'),
-      toCsv({ columns: ['variant', 'posthog_exposures', 'srm_expected', 'srm_p_value', 'srm_check_status'], rows }));
-    console.log(`q11_experiment_exposure: ${rows.length} rows -> analysis/results/q11_experiment_exposure.csv`);
+    const rows = Object.entries(r.total_exposures ?? {}).sort().map(([variant, n]) =>
+      [variant, n, srm.expected?.[variant] ?? '', srm.p_value ?? '', srmCheck?.status ?? '', r.last_refresh ?? '', r.is_cached ?? '']);
+    fs.writeFileSync(path.join(outDir, 'q11_experiment_exposure.csv'),
+      toCsv({ columns: ['variant', 'posthog_exposures', 'srm_expected', 'srm_p_value', 'srm_check_status', 'posthog_calculated_at', 'served_from_cache'], rows }));
+    console.log(`q11_experiment_exposure: ${rows.length} rows -> ${rel('q11_experiment_exposure.csv')}`);
   }
 }
 
