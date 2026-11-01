@@ -9,13 +9,16 @@ Live page: https://josebbk.github.io/bot-aa-test/
 ```
 site/index.html     the landing page (PostHog snippet, A/A flag `bot-aa-test`, events)
 site/style.css      plain styling
-bots/lib.mjs        shared Playwright runner: fresh context per visit, max 3 at once, CSV logging, --dry-run
+bots/lib.mjs        shared Playwright runner: fresh context per visit, max 3 at once, CSV logging, --dry-run,
+                    counts event requests sent to PostHog, realistic-Chrome settings and the stealth init script
 bots/naive.mjs      group bot-naive: headless Chromium, default "HeadlessChrome" UA, never clicks
-bots/disguised.mjs  group bot-disguised: headless Chromium posing as desktop Chrome 157, scrolls/moves mouse, clicks 30%
+bots/disguised.mjs  group bot-disguised: headless Chromium posing as desktop Chrome 157 (automation flag left on), scrolls/moves mouse, clicks 30%
+bots/stealth.mjs    group bot-stealth: same as disguised, but also hides navigator.webdriver and the "HeadlessChrome" browser brand
 bots/nojs.sh        group bot-nojs: curl GET requests, no JavaScript
 bots/serve.mjs      serves site/ on localhost (used by nojs.sh --dry-run)
 bots/summary.mjs    ground-truth counts per group from logs/visits.csv
 logs/visits.csv     one row per bot visit (created on first run, not committed)
+logs/flags-*.json   saved PostHog /flags answers from the diagnostic visits (not committed)
 .github/workflows/pages.yml  deploys site/ to GitHub Pages
 ```
 
@@ -41,7 +44,8 @@ Run from this folder. Every visit is a new anonymous visitor, with at most 3 run
 
 ```bash
 node bots/naive.mjs                  # 150 visits, group bot-naive
-node bots/disguised.mjs              # 150 visits, group bot-disguised
+node bots/disguised.mjs              # 30 visits, group bot-disguised
+node bots/stealth.mjs                # 150 visits, group bot-stealth
 bash bots/nojs.sh                    # 50 requests, group bot-nojs
 node bots/summary.mjs                # ground-truth counts per group
 ```
@@ -66,4 +70,7 @@ Visits without `?g=` are tagged `direct`.
 
 ## CSV columns (`logs/visits.csv`)
 
-`timestamp, group, visit, user_agent, clicked, http_status, variant, target_url`. `variant` is what the bot saw on the page (`control`, `test`, `none`), and is empty for curl.
+`timestamp, group, visit, user_agent, clicked, http_status, variant, target_url, posthog_events_sent`.
+
+- `variant` is what the bot saw on the page (`control`, `test`, `none`), and is empty for curl. The bot waits up to 10 s for it.
+- `posthog_events_sent` is the number of requests to PostHog's event endpoint (`/e/`, `/i/v0/e/`) that got a response during the visit. One request can carry several events. Session recordings (`/s/`), flags and script downloads are not counted. It is always 0 for curl and empty for rows logged before the column existed.

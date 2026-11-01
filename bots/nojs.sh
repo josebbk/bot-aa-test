@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bot-nojs: plain curl GET requests. No JavaScript runs, so PostHog never loads.
+# bot-nojs: plain curl GET requests. No JavaScript runs, so PostHog never loads (posthog_events_sent is always 0).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,13 +28,13 @@ case "$URL" in *\?*) TARGET="${URL}&g=bot-nojs" ;; *) TARGET="${URL}?g=bot-nojs"
 UA="curl/$(curl --version | head -n1 | cut -d' ' -f2)"
 LOG="logs/visits.csv"
 mkdir -p logs
-[ -f "$LOG" ] || echo "timestamp,group,visit,user_agent,clicked,http_status,variant,target_url" > "$LOG"
+[ -f "$LOG" ] || echo "timestamp,group,visit,user_agent,clicked,http_status,variant,target_url,posthog_events_sent" > "$LOG"
 
 echo "bot-nojs: $COUNT visit(s) to $TARGET$([ "$DRY" = 1 ] && echo '  [dry run]')"
 for i in $(seq 1 "$COUNT"); do
   TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -A "$UA" "$TARGET" || true)"
-  printf '%s,bot-nojs,%s,"%s",false,%s,,"%s"\n' "$TS" "$i" "$UA" "$STATUS" "$TARGET" >> "$LOG"
+  printf '%s,bot-nojs,%s,"%s",false,%s,,"%s",0\n' "$TS" "$i" "$UA" "$STATUS" "$TARGET" >> "$LOG"
   echo "  #$i status=$STATUS"
   if [ "$i" -lt "$COUNT" ]; then
     sleep "$(awk -v r="$RANDOM" 'BEGIN { printf "%.2f", 0.5 + r / 32767 * 1.5 }')"

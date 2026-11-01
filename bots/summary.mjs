@@ -38,10 +38,17 @@ if (!includeDry) records = records.filter((r) => !/^https?:\/\/(localhost|127\.0
 const variants = [...new Set(records.map((r) => r.variant || '(empty)'))].sort();
 const groups = new Map();
 for (const r of records) {
-  const g = groups.get(r.group) ?? { visits: 0, ok: 0, clicks: 0, variants: {} };
+  const g = groups.get(r.group) ?? { visits: 0, ok: 0, clicks: 0, variants: {}, measured: 0, eventRequests: 0, visitsWithEvents: 0 };
   g.visits++;
   if (/^2\d\d$/.test(r.http_status)) g.ok++;
   if (r.clicked === 'true') g.clicks++;
+  // posthog_events_sent is empty for rows logged before the column existed (not measured).
+  if (r.posthog_events_sent !== undefined && r.posthog_events_sent !== '') {
+    const sent = Number(r.posthog_events_sent);
+    g.measured++;
+    g.eventRequests += sent;
+    if (sent > 0) g.visitsWithEvents++;
+  }
   const v = r.variant || '(empty)';
   g.variants[v] = (g.variants[v] ?? 0) + 1;
   groups.set(r.group, g);
@@ -54,9 +61,13 @@ const table = [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([group, g]
   clicks: g.clicks,
   'click rate': g.visits ? `${((g.clicks / g.visits) * 100).toFixed(1)}%` : '-',
   ...Object.fromEntries(variants.map((v) => [`variant: ${v}`, g.variants[v] ?? 0])),
+  'posthog event requests': g.measured ? g.eventRequests : 'not measured',
+  'visits sending events': g.measured ? `${g.visitsWithEvents} of ${g.measured}` : 'not measured',
 }));
 
 console.log(`Ground truth from ${path.relative(process.cwd(), LOG_FILE)}${includeDry ? ' (including dry runs)' : ''}`);
 if (table.length) console.table(table);
 else console.log('No live visits logged yet.');
 if (!includeDry && dryCount) console.log(`(${dryCount} dry-run row(s) excluded; add --include-dry-run to see them)`);
+console.log('posthog event requests = requests to PostHog\'s capture endpoint that got a response (one request can carry several events).');
+console.log('"not measured" = rows logged before the posthog_events_sent column was added.');
